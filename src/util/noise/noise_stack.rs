@@ -1,5 +1,5 @@
+use crate::util::density_volume::DensityVolume;
 use crate::util::interval::Interval;
-use crate::world::worldgen::densityfunction::volume::DensityVolume;
 
 use super::perlin_noise::PerlinNoise;
 use super::simplex_noise::SimplexNoise;

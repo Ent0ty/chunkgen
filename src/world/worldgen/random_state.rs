@@ -6,6 +6,8 @@ use std::sync::{Arc, OnceLock};
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
+use crate::util::noise::Noise;
+use crate::util::noise::normal_noise::NormalNoise;
 use crate::util::rng::RandomFactory;
 use crate::util::rng::name_hash::NameHash;
 use crate::world::worldgen::biome::climate::Sampler;
@@ -16,8 +18,6 @@ use crate::world::worldgen::densityfunction::registry::DensityRegistry;
 use crate::world::worldgen::densityfunction::sampler::S;
 use crate::world::worldgen::material::MaterialSystem;
 use crate::world::worldgen::noise_generator_settings::{NoiseGeneratorSettings, NoiseRouter};
-use crate::world::worldgen::synth::Noise;
-use crate::world::worldgen::synth::normal_noise::NormalNoise;
 
 pub struct RandomState {
     seed: i64,

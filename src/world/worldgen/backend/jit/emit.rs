@@ -4,10 +4,10 @@ use cranelift_codegen::ir::{InstBuilder, MemFlagsData, Signature, Value, types};
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::FunctionBuilder;
 
-use crate::world::worldgen::synth::Noise;
-use crate::world::worldgen::synth::gradient_noise::GradientNoise;
-use crate::world::worldgen::synth::perlin_noise::PerlinNoise;
-use crate::world::worldgen::synth::smeared_perlin_noise::SmearedPerlinNoise;
+use crate::util::noise::Noise;
+use crate::util::noise::gradient_noise::GradientNoise;
+use crate::util::noise::perlin_noise::PerlinNoise;
+use crate::util::noise::smeared_perlin_noise::SmearedPerlinNoise;
 
 use super::runtime;
 use std::ptr;

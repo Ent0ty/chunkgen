@@ -10,11 +10,11 @@ use crate::datapack::{
 };
 
 use crate::registry::fluid::is_water_fluid;
+use crate::util::noise::{Noise, NoiseStack, SimplexNoise};
 use crate::util::rng::RandomSource;
 use crate::util::rng::legacy_random::LegacyRandomSource;
 use crate::world::worldgen::block_survival::can_survive;
 use crate::world::worldgen::region::WorldGenRegion;
-use crate::world::worldgen::synth::{Noise, NoiseStack, SimplexNoise};
 use shulkr::util::BlockPosition;
 
 pub type BiomeRef = &'static Ref<Biome>;

@@ -4,8 +4,8 @@ use std::sync::{Arc, OnceLock};
 use shulkr::util::Axis;
 
 use crate::util::interval::Interval;
-use crate::world::worldgen::synth::normal_noise::NormalNoise;
-use crate::world::worldgen::synth::smeared_perlin_noise::SmearedPerlinNoise;
+use crate::util::noise::normal_noise::NormalNoise;
+use crate::util::noise::smeared_perlin_noise::SmearedPerlinNoise;
 
 use super::spline::CubicSpline;
 use crate::util::interval;

@@ -1,199 +1,280 @@
-use std::ops;
-use std::simd::cmp::{SimdPartialEq, SimdPartialOrd};
-use std::simd::num::SimdFloat;
-use std::simd::{Mask, Simd, SimdCast, SimdElement, StdFloat};
+use serde::{Deserialize, Deserializer};
 
-use crate::util::noise::PerlinNoise;
+use crate::util::interval::Interval;
+use crate::util::rng::RandomSource;
 use crate::util::rng::name_hash::NameHash;
-use crate::util::rng::{RandomFactory, RandomSource};
 
-pub const INPUT_FACTOR: f64 = 1.0181268882175227;
+use super::legacy_fbm_initializer::create_for_legacy_nether_biome;
+use super::noise_stack::{Noise, NoiseStack};
+use super::perlin_noise::{PerlinNoise, STANDARD_DEVIATION};
+use serde::de;
 
-const TARGET_DEVIATION: f64 = 0.16666666666666666;
+const INPUT_FACTOR: f64 = 1.018_126_888_217_522_7;
+const TARGET_DEVIATION: f64 = 0.333_333_333_333_333_3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Normalization {
+    Disabled,
+    Enabled,
+    Legacy,
+}
+
+impl<'de> Deserialize<'de> for Normalization {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Bool(bool),
+            Str(String),
+        }
+        match Raw::deserialize(d)? {
+            Raw::Bool(true) => Ok(Self::Enabled),
+            Raw::Bool(false) => Ok(Self::Disabled),
+            Raw::Str(s) if s == "legacy" => Ok(Self::Legacy),
+            Raw::Str(s) => Err(de::Error::custom(format!(
+                "Invalid normalization type: {s}"
+            ))),
+        }
+    }
+}
+
+const fn default_base_amplitude() -> f64 {
+    1.0
+}
+
+const fn default_octave_count() -> i32 {
+    1
+}
+
+const fn default_normalize() -> Normalization {
+    Normalization::Enabled
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Parameters {
+    #[serde(default = "default_base_amplitude")]
+    pub base_amplitude: f64,
+    pub base_octave: i32,
+    #[serde(default = "default_octave_count")]
+    pub octave_count: i32,
+    #[serde(default = "default_normalize")]
+    pub normalize: Normalization,
+    #[serde(default)]
+    pub amplitude_modifiers: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OctaveInfo {
+    octave_index: i32,
+    frequency: f64,
+    amplitude: f64,
+}
+
+impl OctaveInfo {
+    fn seed(self) -> String {
+        format!("octave_{}", self.octave_index)
+    }
+
+    const fn abs_amplitude(self) -> f64 {
+        self.amplitude.abs()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct NormalNoise {
-    first: PerlinNoise,
-    second: PerlinNoise,
-    value_factor: f64,
-    max_value: f64,
+    pub parameters: Parameters,
+    octaves: Vec<OctaveInfo>,
+    normalization_factor: f64,
+    range: Interval,
 }
 
-impl NormalNoise {
-    pub fn create_from_random(
-        random: &mut RandomSource,
-        first_octave: i32,
-        amplitudes: &[f64],
-    ) -> Self {
-        let first = PerlinNoise::create_from_random(random, first_octave, amplitudes);
-        let second = PerlinNoise::create_from_random(random, first_octave, amplitudes);
-
-        Self::finish(first, second, amplitudes)
-    }
-
-    pub fn create(
-        splitter: &RandomFactory,
-        noise_id: &str,
-        first_octave: i32,
-        amplitudes: &[f64],
-    ) -> Self {
-        let mut random = splitter.with_hash_of(&NameHash::new(noise_id));
-        Self::create_from_random(&mut random, first_octave, amplitudes)
-    }
-
-    fn finish(first: PerlinNoise, second: PerlinNoise, amplitudes: &[f64]) -> Self {
-        let mut min_octave = i32::MAX;
-        let mut max_octave = i32::MIN;
-        for (index, &amplitude) in amplitudes.iter().enumerate() {
-            if amplitude != 0.0 {
-                min_octave = min_octave.min(index as i32);
-                max_octave = max_octave.max(index as i32);
-            }
-        }
-
-        if min_octave == i32::MAX {
-            return Self {
-                first,
-                second,
-                value_factor: 0.0,
-                max_value: 0.0,
-            };
-        }
-
-        let value_factor = TARGET_DEVIATION / expected_deviation(max_octave - min_octave);
-        let max_value = (first.max_value() + second.max_value()) * value_factor;
-
-        Self {
-            first,
-            second,
-            value_factor,
-            max_value,
-        }
-    }
-
-    pub const fn first(&self) -> &PerlinNoise {
-        &self.first
-    }
-
-    pub const fn second(&self) -> &PerlinNoise {
-        &self.second
-    }
-
-    pub const fn value_factor(&self) -> f64 {
-        self.value_factor
-    }
-
-    #[inline]
-    pub fn get_value(&self, x: f64, y: f64, z: f64) -> f64 {
-        let x2 = x * INPUT_FACTOR;
-        let y2 = y * INPUT_FACTOR;
-        let z2 = z * INPUT_FACTOR;
-        (self.first.get_value(x, y, z) + self.second.get_value(x2, y2, z2)) * self.value_factor
-    }
-
-    #[inline]
-    pub fn get_value_simd<F, const N: usize>(
-        &self,
-        x: Simd<F, N>,
-        y: Simd<F, N>,
-        z: Simd<F, N>,
-    ) -> Simd<F, N>
-    where
-        F: SimdElement + SimdCast,
-        Simd<F, N>: SimdFloat<Cast<i32> = Simd<i32, N>>
-            + SimdPartialOrd
-            + SimdPartialEq<Mask = Mask<<F as SimdElement>::Mask, N>>
-            + ops::Add<Output = Simd<F, N>>
-            + ops::Sub<Output = Simd<F, N>>
-            + ops::Mul<Output = Simd<F, N>>
-            + ops::Div<Output = Simd<F, N>>
-            + ops::Neg<Output = Simd<F, N>>
-            + StdFloat,
-    {
-        let x2 = x * Simd::splat(INPUT_FACTOR).cast::<F>();
-        let y2 = y * Simd::splat(INPUT_FACTOR).cast::<F>();
-        let z2 = z * Simd::splat(INPUT_FACTOR).cast::<F>();
-        (self.first.get_value_simd(x, y, z) + self.second.get_value_simd(x2, y2, z2))
-            * Simd::splat(self.value_factor).cast()
-    }
-
-    #[inline]
-    pub fn get_value_xz(&self, x: f64, z: f64) -> f64 {
-        let x2 = x * INPUT_FACTOR;
-        let z2 = z * INPUT_FACTOR;
-        (self.first.get_value_xz(x, z) + self.second.get_value_xz(x2, z2)) * self.value_factor
-    }
-
-    #[inline]
-    pub fn get_value_xy(&self, x: f64, y: f64) -> f64 {
-        let x2 = x * INPUT_FACTOR;
-        let y2 = y * INPUT_FACTOR;
-        (self.first.get_value_xy(x, y) + self.second.get_value_xy(x2, y2)) * self.value_factor
-    }
-
-    #[inline]
-    pub const fn max_value(&self) -> f64 {
-        self.max_value
+const fn amplitude_modifier(modifiers: &[f64], index: i32) -> f64 {
+    if modifiers.is_empty() {
+        1.0
+    } else {
+        modifiers[index as usize]
     }
 }
 
-#[inline]
-fn expected_deviation(octave_span: i32) -> f64 {
+fn build_octaves(
+    base_octave: i32,
+    base_amplitude: f64,
+    octave_count: i32,
+    normalize: bool,
+    modifiers: &[f64],
+) -> Vec<OctaveInfo> {
+    let mut frequency = 2.0f64.powi(base_octave);
+    let mut amplitude = base_amplitude;
+    if normalize {
+        amplitude *= 0.5f64.powf(-f64::from(octave_count - 1))
+            / (0.5f64.powf(-f64::from(octave_count)) - 1.0);
+    }
+    let mut octaves = Vec::with_capacity(octave_count as usize);
+    for i in 0..octave_count {
+        let modifier = amplitude_modifier(modifiers, i);
+        if modifier != 0.0 {
+            octaves.push(OctaveInfo {
+                octave_index: base_octave + i,
+                frequency,
+                amplitude: amplitude * modifier,
+            });
+        }
+        frequency *= 2.0;
+        amplitude *= 0.5;
+    }
+    octaves
+}
+
+fn estimate_deviation(octaves: &[OctaveInfo]) -> f64 {
+    let mut variance = 0.0;
+    for octave in octaves {
+        let layer_deviation = STANDARD_DEVIATION * octave.abs_amplitude();
+        variance += layer_deviation * layer_deviation;
+    }
+    variance.sqrt()
+}
+
+fn compute_normalization_factor(target_amplitude: f64, octaves: &[OctaveInfo]) -> f64 {
+    let input_deviation = estimate_deviation(octaves);
+    if input_deviation == 0.0 {
+        return 0.0;
+    }
+    let input_sum_deviation = input_deviation * 2.0f64.sqrt();
+    let target_deviation = target_amplitude * TARGET_DEVIATION;
+    target_deviation / input_sum_deviation
+}
+
+fn parity_expected_deviation(octave_span: i32) -> f64 {
     0.1 * (1.0 + 1.0 / f64::from(octave_span + 1))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::util::rng::xoroshiro::XoroshiroRandomSource;
-
-    fn rng(seed: u64) -> RandomSource {
-        RandomSource::Xoroshiro(XoroshiroRandomSource::from_seed(seed))
+fn compute_parity_normalization_factor(
+    base_amplitude: f64,
+    octave_count: i32,
+    modifiers: &[f64],
+) -> f64 {
+    let mut min_octave = i32::MAX;
+    let mut max_octave = i32::MIN;
+    for i in 0..octave_count {
+        if amplitude_modifier(modifiers, i) != 0.0 {
+            min_octave = min_octave.min(i);
+            max_octave = max_octave.max(i);
+        }
     }
+    base_amplitude * 0.5 * TARGET_DEVIATION
+        / parity_expected_deviation(max_octave.wrapping_sub(min_octave))
+}
 
-    #[test]
-    fn deterministic_for_same_seed() {
-        let mut random = rng(12345);
-        let splitter = random.next_positional();
-        let amplitudes = [1.0, 1.0, 1.0];
-        let noise1 = NormalNoise::create(&splitter, "test_noise", -3, &amplitudes);
-        let noise2 = NormalNoise::create(&splitter, "test_noise", -3, &amplitudes);
+fn compute_parity_base_amplitude(base_octave: i32, amplitudes: &[f64]) -> f64 {
+    let octaves = build_octaves(base_octave, 1.0, amplitudes.len() as i32, true, amplitudes);
+    let target_amplitude = sum_abs(&octaves);
+    let new_normalization_factor = compute_normalization_factor(target_amplitude, &octaves);
+    if new_normalization_factor == 0.0 {
+        return 1.0;
+    }
+    let old_normalization_factor =
+        compute_parity_normalization_factor(1.0, amplitudes.len() as i32, amplitudes);
+    old_normalization_factor / new_normalization_factor
+}
 
-        assert!(
-            (noise1.get_value(100.0, 64.0, 100.0) - noise2.get_value(100.0, 64.0, 100.0)).abs()
-                < 1e-15
+fn sum_abs(octaves: &[OctaveInfo]) -> f64 {
+    let mut sum = 0.0;
+    for octave in octaves {
+        sum += octave.abs_amplitude();
+    }
+    sum
+}
+
+impl NormalNoise {
+    pub fn new(parameters: Parameters) -> Self {
+        let octaves = build_octaves(
+            parameters.base_octave,
+            parameters.base_amplitude,
+            parameters.octave_count,
+            parameters.normalize != Normalization::Disabled,
+            &parameters.amplitude_modifiers,
         );
-    }
-
-    #[test]
-    fn zero_axis_helpers_match_full_noise() {
-        let mut random = rng(98_765);
-        let splitter = random.next_positional();
-        let noise = NormalNoise::create(&splitter, "zero_axis", -6, &[1.0, 0.0, 1.0, 1.0, 0.5]);
-
-        for &(a, b) in &[(0.0, 0.0), (1.25, -30.75), (-1000.0, 4096.5)] {
-            assert!((noise.get_value_xz(a, b) - noise.get_value(a, 0.0, b)).abs() < 1e-15);
-            assert!((noise.get_value_xy(a, b) - noise.get_value(a, b, 0.0)).abs() < 1e-15);
+        let mut target_amplitude = sum_abs(&octaves);
+        let mut normalization_factor = compute_normalization_factor(target_amplitude, &octaves);
+        if parameters.normalize == Normalization::Legacy && normalization_factor != 0.0 {
+            let parity = compute_parity_normalization_factor(
+                parameters.base_amplitude,
+                parameters.octave_count,
+                &parameters.amplitude_modifiers,
+            );
+            target_amplitude *= parity / normalization_factor;
+            normalization_factor = parity;
+        }
+        let range = Interval::of_symmetric((target_amplitude * TARGET_DEVIATION * 6.0) as f32);
+        Self {
+            parameters,
+            octaves,
+            normalization_factor,
+            range,
         }
     }
 
-    #[test]
-    fn spatial_variation() {
-        let mut random = rng(42);
-        let splitter = random.next_positional();
-        let noise = NormalNoise::create(&splitter, "test_noise", -4, &[1.0, 1.0, 1.0, 1.0]);
-
-        let values: Vec<f64> = (0..10)
-            .map(|i| noise.get_value(f64::from(i) * 50.0, 64.0, f64::from(i) * 50.0))
-            .collect();
-        let min = values.iter().copied().fold(f64::INFINITY, f64::min);
-        let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        assert!(max - min > 0.01);
+    pub fn create_parity(first_octave: i32, amplitudes: &[f64]) -> Self {
+        assert!(!amplitudes.is_empty(), "Need at least 1 amplitude");
+        let octave_count = amplitudes.len() as i32;
+        let mut amplitude_modifiers = Vec::new();
+        for (i, &modifier) in amplitudes.iter().enumerate() {
+            if modifier != 1.0 {
+                if amplitude_modifiers.is_empty() {
+                    amplitude_modifiers = vec![1.0; amplitudes.len()];
+                }
+                amplitude_modifiers[i] = modifier;
+            }
+        }
+        Self::new(Parameters {
+            base_amplitude: compute_parity_base_amplitude(first_octave, amplitudes),
+            base_octave: first_octave,
+            octave_count,
+            normalize: Normalization::Enabled,
+            amplitude_modifiers,
+        })
     }
 
-    #[test]
-    fn expected_deviation_matches_formula() {
-        assert!((expected_deviation(0) - 0.2).abs() < 1e-10);
-        assert!((expected_deviation(1) - 0.15).abs() < 1e-10);
+    pub const fn range(&self) -> Interval {
+        self.range
+    }
+
+    pub fn create(&self, random: &mut RandomSource) -> Noise {
+        let first_random = random.next_positional();
+        let second_random = random.next_positional();
+        let mut stack = NoiseStack::builder();
+        for octave in &self.octaves {
+            let seed = NameHash::new(&octave.seed());
+            let first = PerlinNoise::new(&mut first_random.with_hash_of(&seed));
+            let second = PerlinNoise::new(&mut second_random.with_hash_of(&seed));
+            let value_factor = (self.normalization_factor * octave.amplitude) as f32;
+            stack = stack
+                .add(Noise::Perlin(first), octave.frequency, value_factor)
+                .add(
+                    Noise::Perlin(second),
+                    octave.frequency * INPUT_FACTOR,
+                    value_factor,
+                );
+        }
+        Noise::Stack(stack.build())
+    }
+
+    pub fn create_for_legacy_nether_biome(&self, random: &mut RandomSource) -> Noise {
+        let amplitudes = if self.parameters.amplitude_modifiers.is_empty() {
+            vec![1.0; self.parameters.octave_count as usize]
+        } else {
+            self.parameters.amplitude_modifiers.clone()
+        };
+        let first =
+            create_for_legacy_nether_biome(random, self.parameters.base_octave, &amplitudes);
+        let second =
+            create_for_legacy_nether_biome(random, self.parameters.base_octave, &amplitudes);
+        let value_factor = (self.normalization_factor * self.parameters.base_amplitude) as f32;
+        Noise::Stack(
+            NoiseStack::builder()
+                .add_stack(first, 1.0, value_factor)
+                .add_stack(second, INPUT_FACTOR, value_factor)
+                .build(),
+        )
     }
 }

@@ -1,11 +1,11 @@
+use crate::util::noise::gradient_noise::GRADIENT;
+use crate::util::noise::{Noise, SimplexNoise};
 use crate::world::worldgen::densityfunction::context::SamplerContext;
 use crate::world::worldgen::densityfunction::eval;
 use crate::world::worldgen::densityfunction::eval::{end_island_height, interp_value};
 use crate::world::worldgen::densityfunction::function::java_round;
 use crate::world::worldgen::densityfunction::sampler;
 use crate::world::worldgen::densityfunction::sampler::SamplerNode;
-use crate::world::worldgen::synth::gradient_noise::GRADIENT;
-use crate::world::worldgen::synth::{Noise, SimplexNoise};
 
 pub static GRADIENT_F32: [[f32; 4]; 16] = {
     let mut table = [[0.0f32; 4]; 16];

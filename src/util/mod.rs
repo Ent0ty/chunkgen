@@ -1,3 +1,4 @@
+pub mod density_volume;
 pub mod hash_set;
 pub mod inclusive_range;
 pub mod interval;

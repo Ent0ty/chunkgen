@@ -1,6 +1,6 @@
 use crate::world::worldgen::beardifier::Beardifier;
 
-use super::volume::DensityVolume;
+use crate::util::density_volume::DensityVolume;
 
 pub fn block_pos_as_long(x: i32, y: i32, z: i32) -> i64 {
     ((i64::from(x) & 0x3FF_FFFF) << 38)

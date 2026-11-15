@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 use serde_json::Value;
 
 use crate::datapack::{Datapack, DatapackError, collect_json_files, path_to_id, read};
-use crate::world::worldgen::synth::normal_noise::{NormalNoise, Parameters};
+use crate::util::noise::normal_noise::{NormalNoise, Parameters};
 
 use super::function::Df;
 use super::parse::ParseContext;

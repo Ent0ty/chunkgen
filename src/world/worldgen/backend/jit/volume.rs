@@ -5,14 +5,14 @@ use cranelift_module::Module;
 use rustc_hash::FxHashMap;
 use shulkr::util::Axis;
 
+use crate::util::noise::Noise;
 use crate::world::worldgen::densityfunction::function::{DistanceMetric, RoundType, SimpleType};
 use crate::world::worldgen::densityfunction::sampler::{GradientTiling, S, Sampler, SamplerNode};
-use crate::world::worldgen::synth::Noise;
 
 use super::emit::Emitter;
 use super::module::Jit;
 use super::runtime;
-use crate::world::worldgen::synth::gradient_noise::GradientNoise;
+use crate::util::noise::gradient_noise::GradientNoise;
 use std::iter;
 use std::mem;
 use std::ptr;

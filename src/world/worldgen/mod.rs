@@ -20,7 +20,6 @@ pub mod random_state;
 pub mod region;
 pub mod scheduler;
 pub mod structure;
-pub mod synth;
 pub mod worldgen_context;
 
 use std::result::Result as StdResult;

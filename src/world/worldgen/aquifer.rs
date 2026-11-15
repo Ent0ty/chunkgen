@@ -2,6 +2,7 @@ use rustc_hash::FxHashMap;
 use serde_json::Value;
 use shulkr::world::block::{Block, BlockState};
 
+use crate::util::density_volume::DensityVolume;
 use crate::util::math::{clamp, map, map_clamped};
 use crate::util::rng::RandomFactory;
 use crate::world::worldgen::densityfunction::context::{SamplerContext, block_pos_as_long};
@@ -9,7 +10,6 @@ use crate::world::worldgen::densityfunction::eval::{sample_value, sample_volume}
 use crate::world::worldgen::densityfunction::function::Df;
 use crate::world::worldgen::densityfunction::registry::DensityRegistry;
 use crate::world::worldgen::densityfunction::sampler::S;
-use crate::world::worldgen::densityfunction::volume::DensityVolume;
 use crate::world::worldgen::random_state::RandomState;
 
 const DIMENSION_MIN_Y: i32 = -2032;

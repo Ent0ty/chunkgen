@@ -1,7 +1,7 @@
+use crate::util::density_volume::DensityVolume;
 use crate::world::worldgen::aquifer::{Aquifer, FluidPicker};
 use crate::world::worldgen::beardifier::Beardifier;
 use crate::world::worldgen::densityfunction::context::SamplerContext;
-use crate::world::worldgen::densityfunction::volume::DensityVolume;
 use crate::world::worldgen::noise_generator_settings::NoiseGeneratorSettings;
 use crate::world::worldgen::random_state::RandomState;
 

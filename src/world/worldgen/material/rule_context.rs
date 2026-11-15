@@ -5,15 +5,15 @@ use shulkr::util::BlockPosition;
 use shulkr::world::block::BlockState;
 
 use crate::registry::biome::{BiomeRef, cold_enough_to_snow};
+use crate::util::density_volume::DensityVolume;
+use crate::util::noise::Noise;
 use crate::util::rng::RandomFactory;
 use crate::util::value_providers::VerticalAnchor;
 use crate::world::worldgen::densityfunction::context::SamplerContext;
 use crate::world::worldgen::densityfunction::eval::{sample_value, sample_volume};
 use crate::world::worldgen::densityfunction::function::Df;
 use crate::world::worldgen::densityfunction::sampler::S;
-use crate::world::worldgen::densityfunction::volume::DensityVolume;
 use crate::world::worldgen::random_state::RandomState;
-use crate::world::worldgen::synth::Noise;
 use crate::world::worldgen::worldgen_context::WorldGenContext;
 
 use super::MaterialSystem;

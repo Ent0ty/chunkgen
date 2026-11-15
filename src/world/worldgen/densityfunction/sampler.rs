@@ -4,7 +4,7 @@ use shulkr::util::Axis;
 
 use crate::world::worldgen::backend::jit::Slots;
 
-use crate::world::worldgen::synth::{Noise, SimplexNoise};
+use crate::util::noise::{Noise, SimplexNoise};
 
 use super::function::{DistanceMetric, RoundType, SimpleType};
 use std::fmt;

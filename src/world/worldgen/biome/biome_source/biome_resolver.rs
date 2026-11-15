@@ -1,7 +1,7 @@
 use crate::registry::biome::BiomeRef;
+use crate::util::density_volume::DensityVolume;
 use crate::world::worldgen::biome::climate::{Sampler, TargetPoint};
 use crate::world::worldgen::densityfunction::context::SamplerContext;
-use crate::world::worldgen::densityfunction::volume::DensityVolume;
 use crate::world::worldgen::random_state::RandomState;
 
 use super::{BiomeSource, distinct_biome_refs};

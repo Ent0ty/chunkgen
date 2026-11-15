@@ -10,6 +10,8 @@ use shulkr::util::{BlockPosition, Key};
 use shulkr::world::block::{Block, BlockState};
 
 use crate::registry::biome::{BiomeRef, should_melt_frozen_ocean_iceberg_slightly};
+use crate::util::density_volume::DensityVolume;
+use crate::util::noise::Noise;
 use crate::util::rng::name_hash::NameHash;
 use crate::util::rng::{RandomFactory, RandomSource};
 use crate::world::chunk::heightmap::HeightmapType;
@@ -17,10 +19,8 @@ use crate::world::chunk::proto::Chunk;
 use crate::world::chunk::status::ChunkStatus;
 use crate::world::worldgen::densityfunction::context::SamplerContext;
 use crate::world::worldgen::densityfunction::function::{Df, java_round};
-use crate::world::worldgen::densityfunction::volume::DensityVolume;
 use crate::world::worldgen::noise_chunk::NoiseChunk;
 use crate::world::worldgen::random_state::RandomState;
-use crate::world::worldgen::synth::Noise;
 use crate::world::worldgen::worldgen_context::WorldGenContext;
 
 use rule::MaterialRule;

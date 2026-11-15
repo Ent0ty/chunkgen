@@ -1,385 +1,212 @@
-use std::ops;
-use std::simd::cmp::{SimdPartialEq, SimdPartialOrd};
-use std::simd::num::SimdFloat;
-use std::simd::{Mask, Simd, SimdCast, SimdElement, StdFloat, f64x4};
+use crate::util::density_volume::DensityVolume;
+use crate::util::interval::Interval;
+use crate::util::rng::RandomSource;
 
-use crate::util::math::{wrap, wrap_simd};
-use crate::util::noise::ImprovedNoise;
-use crate::util::rng::name_hash::NameHash;
-use crate::util::rng::{RandomFactory, RandomSource};
+use super::gradient_noise::{GradientNoise, floor, grad_dot, lerp3, smoothstep, wrap};
+
+pub const STANDARD_DEVIATION: f64 = 0.270_224_783_124_521_1;
 
 #[derive(Debug, Clone)]
 pub struct PerlinNoise {
-    noise_levels: Vec<Option<ImprovedNoise>>,
-    amplitudes: Vec<f64>,
-    active_octaves: Vec<ActiveOctave>,
-    lowest_freq_value_factor: f64,
-    max_value: f64,
-}
-
-#[derive(Debug, Clone)]
-struct ActiveOctave {
-    noise: ImprovedNoise,
-    input_factor: f64,
-    output_factor: f64,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct OctaveSnapshot<'a> {
-    pub noise: &'a ImprovedNoise,
-    pub input_factor: f64,
-    pub output_factor: f64,
+    pub base: GradientNoise,
 }
 
 impl PerlinNoise {
-    pub fn active_octaves(&self) -> impl ExactSizeIterator<Item = OctaveSnapshot<'_>> {
-        self.active_octaves.iter().map(|octave| OctaveSnapshot {
-            noise: &octave.noise,
-            input_factor: octave.input_factor,
-            output_factor: octave.output_factor,
-        })
-    }
-
-    pub fn create(splitter: &RandomFactory, first_octave: i32, amplitudes: &[f64]) -> Self {
-        let octave_count = amplitudes.len();
-        let zero_octave_index = (-first_octave) as usize;
-
-        let mut noise_levels = vec![None; octave_count];
-        for (index, level) in noise_levels.iter_mut().enumerate() {
-            if amplitudes[index] != 0.0 {
-                let octave = first_octave + index as i32;
-                let mut octave_random =
-                    splitter.with_hash_of(&NameHash::new(&format!("octave_{octave}")));
-                *level = Some(ImprovedNoise::new(&mut octave_random));
-            }
-        }
-
-        Self::from_parts(noise_levels, amplitudes, zero_octave_index)
-    }
-
-    pub fn create_from_random(
-        random: &mut RandomSource,
-        first_octave: i32,
-        amplitudes: &[f64],
-    ) -> Self {
-        Self::create(&random.next_positional(), first_octave, amplitudes)
-    }
-
-    pub fn create_legacy_for_nether(
-        random: &mut RandomSource,
-        first_octave: i32,
-        amplitudes: &[f64],
-    ) -> Self {
-        let octave_count = amplitudes.len();
-        let zero_octave_index = (-first_octave) as usize;
-
-        let mut noise_levels = vec![None; octave_count];
-
-        let zero_octave = ImprovedNoise::new(random);
-        if zero_octave_index < octave_count && amplitudes[zero_octave_index] != 0.0 {
-            noise_levels[zero_octave_index] = Some(zero_octave);
-        }
-
-        for index in (0..zero_octave_index).rev() {
-            if index < octave_count && amplitudes[index] != 0.0 {
-                noise_levels[index] = Some(ImprovedNoise::new(random));
-            } else {
-                random.consume_count(262);
-            }
-        }
-
-        Self::from_parts(noise_levels, amplitudes, zero_octave_index)
-    }
-
-    fn from_parts(
-        noise_levels: Vec<Option<ImprovedNoise>>,
-        amplitudes: &[f64],
-        zero_octave_index: usize,
-    ) -> Self {
-        let octave_count = amplitudes.len();
-
-        let lowest_freq_input_factor = 2.0_f64.powi(-(zero_octave_index as i32));
-        let lowest_freq_value_factor =
-            2.0_f64.powi((octave_count - 1) as i32) / (2.0_f64.powi(octave_count as i32) - 1.0);
-        let max_value = Self::edge_value(amplitudes, lowest_freq_value_factor, 2.0);
-
-        let mut active_octaves = Vec::with_capacity(noise_levels.len());
-        let mut input_factor = lowest_freq_input_factor;
-        let mut value_factor = lowest_freq_value_factor;
-        for (index, level) in noise_levels.iter().enumerate() {
-            if let Some(noise) = level {
-                active_octaves.push(ActiveOctave {
-                    noise: noise.clone(),
-                    input_factor,
-                    output_factor: amplitudes[index] * value_factor,
-                });
-            }
-            input_factor *= 2.0;
-            value_factor /= 2.0;
-        }
-
+    pub fn new(random: &mut RandomSource) -> Self {
         Self {
-            noise_levels,
-            amplitudes: amplitudes.to_vec(),
-            active_octaves,
-            lowest_freq_value_factor,
-            max_value,
+            base: GradientNoise::new(random, 256.0),
         }
     }
 
-    fn edge_value(amplitudes: &[f64], lowest_freq_value_factor: f64, noise_value: f64) -> f64 {
-        let mut value = 0.0;
-        let mut value_factor = lowest_freq_value_factor;
-
-        for &amplitude in amplitudes {
-            if amplitude != 0.0 {
-                value += amplitude * noise_value * value_factor;
-            }
-            value_factor /= 2.0;
-        }
-
-        value
+    pub fn range() -> Interval {
+        Interval::of_symmetric(2.0)
     }
 
-    #[inline]
-    pub fn get_value(&self, x: f64, y: f64, z: f64) -> f64 {
-        let mut value = 0.0;
-
-        for octave in &self.active_octaves {
-            let factor = octave.input_factor;
-            let noise_value =
-                octave
-                    .noise
-                    .noise(wrap(x * factor), wrap(y * factor), wrap(z * factor));
-            value += octave.output_factor * noise_value;
-        }
-
-        value
+    pub fn get2(&self, x: f64, y: f64) -> f32 {
+        self.get(wrap(x), 0.0, wrap(y))
     }
 
-    #[inline]
-    pub fn get_value_xz(&self, x: f64, z: f64) -> f64 {
-        let mut value = 0.0;
-
-        for octave in &self.active_octaves {
-            let factor = octave.input_factor;
-            let noise_value = octave.noise.noise_xz(wrap(x * factor), wrap(z * factor));
-            value += octave.output_factor * noise_value;
-        }
-
-        value
-    }
-
-    #[inline]
-    pub fn get_value_xy(&self, x: f64, y: f64) -> f64 {
-        let mut value = 0.0;
-
-        for octave in &self.active_octaves {
-            let factor = octave.input_factor;
-            let noise_value = octave.noise.noise_xy(wrap(x * factor), wrap(y * factor));
-            value += octave.output_factor * noise_value;
-        }
-
-        value
-    }
-
-    #[inline]
-    pub fn get_value_simd<F, const N: usize>(
-        &self,
-        x: Simd<F, N>,
-        y: Simd<F, N>,
-        z: Simd<F, N>,
-    ) -> Simd<F, N>
-    where
-        F: SimdElement + SimdCast,
-        Simd<F, N>: SimdFloat<Cast<i32> = Simd<i32, N>>
-            + SimdPartialOrd
-            + SimdPartialEq<Mask = Mask<<F as SimdElement>::Mask, N>>
-            + ops::Add<Output = Simd<F, N>>
-            + ops::Sub<Output = Simd<F, N>>
-            + ops::Mul<Output = Simd<F, N>>
-            + ops::Div<Output = Simd<F, N>>
-            + ops::Neg<Output = Simd<F, N>>
-            + StdFloat,
-    {
-        let mut value = Simd::splat(0.0).cast();
-
-        for octave in &self.active_octaves {
-            let factor = Simd::splat(octave.input_factor).cast();
-            let noise_value = octave.noise.noise_simd(
-                wrap_simd(x * factor),
-                wrap_simd(y * factor),
-                wrap_simd(z * factor),
-            );
-            value += Simd::splat(octave.output_factor).cast() * noise_value;
-        }
-
-        value
-    }
-
-    pub fn get_value_with_y_params(
-        &self,
-        x: f64,
-        y: f64,
-        z: f64,
-        y_scale: f64,
-        y_fudge: f64,
-        y_flat_hack: bool,
-    ) -> f64 {
-        let mut value = 0.0;
-
-        for octave in &self.active_octaves {
-            let factor = octave.input_factor;
-            let noise = &octave.noise;
-            let noise_value = noise.noise_with_y_scale(
-                wrap(x * factor),
-                if y_flat_hack {
-                    -noise.yo
-                } else {
-                    wrap(y * factor)
-                },
-                wrap(z * factor),
-                y_scale * factor,
-                y_fudge * factor,
-            );
-            value += octave.output_factor * noise_value;
-        }
-
-        value
-    }
-
-    pub fn get_value_with_y_params_4x(
-        &self,
-        x: f64,
-        ys: f64x4,
-        z: f64,
-        y_scale: f64,
-        y_fudge: f64,
-        y_flat_hack: bool,
-    ) -> f64x4 {
-        let mut value = f64x4::splat(0.0);
-
-        for octave in &self.active_octaves {
-            let factor = octave.input_factor;
-            let noise = &octave.noise;
-            let x_w = wrap(x * factor);
-            let z_w = wrap(z * factor);
-            let ys_w = if y_flat_hack {
-                f64x4::splat(-noise.yo)
-            } else {
-                wrap_simd(ys * f64x4::splat(factor))
-            };
-            let y_fudges = f64x4::splat(y_fudge * factor);
-            let noise_value =
-                noise.noise_with_y_scale_simd(x_w, ys_w, z_w, y_scale * factor, y_fudges);
-            value += f64x4::splat(octave.output_factor) * noise_value;
-        }
-
-        value
-    }
-
-    pub fn get_value_with_y_params_simd<const N: usize>(
-        &self,
-        x: f64,
-        ys: Simd<f64, N>,
-        z: f64,
-        y_scale: f64,
-        y_fudge: f64,
-        y_flat_hack: bool,
-    ) -> Simd<f64, N> {
-        let mut value = Simd::splat(0.0);
-
-        for octave in &self.active_octaves {
-            let factor = octave.input_factor;
-            let noise = &octave.noise;
-            let x_w = wrap(x * factor);
-            let z_w = wrap(z * factor);
-            let ys_w = if y_flat_hack {
-                Simd::splat(-noise.yo)
-            } else {
-                wrap_simd(ys * Simd::splat(factor))
-            };
-            let y_fudges = Simd::splat(y_fudge * factor);
-            let noise_value =
-                noise.noise_with_y_scale_simd(x_w, ys_w, z_w, y_scale * factor, y_fudges);
-            value += Simd::splat(octave.output_factor) * noise_value;
-        }
-
-        value
-    }
-
-    #[inline]
-    pub const fn max_value(&self) -> f64 {
-        self.max_value
-    }
-
-    pub fn max_broken_value(&self, y_scale: f64) -> f64 {
-        Self::edge_value(
-            &self.amplitudes,
-            self.lowest_freq_value_factor,
-            y_scale + 2.0,
+    pub fn get(&self, x: f64, y: f64, z: f64) -> f32 {
+        let x = wrap(x) + self.base.offset_x;
+        let y = wrap(y) + self.base.offset_y;
+        let z = wrap(z) + self.base.offset_z;
+        let floor_x = floor(x);
+        let floor_y = floor(y);
+        let floor_z = floor(z);
+        let relative_x = (x - f64::from(floor_x)) as f32;
+        let relative_y = (y - f64::from(floor_y)) as f32;
+        let relative_z = (z - f64::from(floor_z)) as f32;
+        self.sample_and_lerp(
+            floor_x, floor_y, floor_z, relative_x, relative_y, relative_z, relative_y,
         )
     }
 
-    pub fn get_octave_noise(&self, index: usize) -> Option<&ImprovedNoise> {
-        self.noise_levels
-            .get(self.noise_levels.len() - 1 - index)
-            .and_then(|level| level.as_ref())
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors PerlinNoise.sampleAndLerp"
+    )]
+    pub fn sample_and_lerp(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        relative_x: f32,
+        relative_y: f32,
+        relative_z: f32,
+        original_relative_y: f32,
+    ) -> f32 {
+        let p = &self.base;
+        let x0 = p.permute(x);
+        let x1 = p.permute(x.wrapping_add(1));
+        let xy00 = p.permute(x0 + y);
+        let xy01 = p.permute(x0 + y + 1);
+        let xy10 = p.permute(x1 + y);
+        let xy11 = p.permute(x1 + y + 1);
+        let d000 = grad_dot(p.permute(xy00 + z), relative_x, relative_y, relative_z);
+        let d100 = grad_dot(
+            p.permute(xy10 + z),
+            relative_x - 1.0,
+            relative_y,
+            relative_z,
+        );
+        let d010 = grad_dot(
+            p.permute(xy01 + z),
+            relative_x,
+            relative_y - 1.0,
+            relative_z,
+        );
+        let d110 = grad_dot(
+            p.permute(xy11 + z),
+            relative_x - 1.0,
+            relative_y - 1.0,
+            relative_z,
+        );
+        let d001 = grad_dot(
+            p.permute(xy00 + z + 1),
+            relative_x,
+            relative_y,
+            relative_z - 1.0,
+        );
+        let d101 = grad_dot(
+            p.permute(xy10 + z + 1),
+            relative_x - 1.0,
+            relative_y,
+            relative_z - 1.0,
+        );
+        let d011 = grad_dot(
+            p.permute(xy01 + z + 1),
+            relative_x,
+            relative_y - 1.0,
+            relative_z - 1.0,
+        );
+        let d111 = grad_dot(
+            p.permute(xy11 + z + 1),
+            relative_x - 1.0,
+            relative_y - 1.0,
+            relative_z - 1.0,
+        );
+        let x_alpha = smoothstep(relative_x);
+        let y_alpha = smoothstep(original_relative_y);
+        let z_alpha = smoothstep(relative_z);
+        lerp3(
+            x_alpha, y_alpha, z_alpha, d000, d100, d010, d110, d001, d101, d011, d111,
+        )
+    }
+
+    pub fn add_to_volume(
+        &self,
+        buffer: &mut [f32],
+        volume: &DensityVolume,
+        xz_scale: f64,
+        y_scale: f64,
+        amplitude: f32,
+    ) {
+        add_to_volume(
+            &self.base,
+            buffer,
+            volume,
+            xz_scale,
+            y_scale,
+            amplitude,
+            |_, rel| rel as f32,
+        );
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::util::rng::xoroshiro::XoroshiroRandomSource;
+pub(super) fn add_to_volume(
+    p: &GradientNoise,
+    buffer: &mut [f32],
+    volume: &DensityVolume,
+    xz_scale: f64,
+    y_scale: f64,
+    amplitude: f32,
+    fudged_relative_y: impl Fn(f64, f64) -> f32,
+) {
+    let mut d = [0.0f32; 8];
+    let mut g = [0.0f32; 8];
+    let mut index = 0;
 
-    fn rng(seed: u64) -> RandomSource {
-        RandomSource::Xoroshiro(XoroshiroRandomSource::from_seed(seed))
-    }
+    for index_z in 0..volume.size_z {
+        let z = wrap(f64::from(volume.block_z(index_z)) * xz_scale) + p.offset_z;
+        let floor_z = floor(z);
+        let relative_z = (z - f64::from(floor_z)) as f32;
+        let alpha_z = smoothstep(relative_z);
 
-    #[test]
-    fn get_value_matches_zero_y_params_path() {
-        let mut random = rng(12345);
-        let splitter = random.next_positional();
-        let noise = PerlinNoise::create(&splitter, -4, &[1.0, 0.0, 1.0, 1.0]);
+        for index_x in 0..volume.size_x {
+            let x = wrap(f64::from(volume.block_x(index_x)) * xz_scale) + p.offset_x;
+            let floor_x = floor(x);
+            let relative_x = (x - f64::from(floor_x)) as f32;
+            let x0 = p.permute(floor_x);
+            let x1 = p.permute(floor_x.wrapping_add(1));
+            let alpha_x = smoothstep(relative_x);
+            let mut last_floor_y = i32::MIN;
 
-        for (x, y, z) in [
-            (0.0, 0.0, 0.0),
-            (100.0, 64.0, -100.0),
-            (-4096.25, -32.5, 1024.75),
-        ] {
-            assert!(
-                (noise.get_value(x, y, z)
-                    - noise.get_value_with_y_params(x, y, z, 0.0, 0.0, false))
-                .abs()
-                    < 1e-15
-            );
+            for index_y in 0..volume.size_y {
+                let original_y = f64::from(volume.block_y(index_y)) * y_scale;
+                let y = wrap(original_y) + p.offset_y;
+                let floor_y = floor(y);
+                let relative_y_d = y - f64::from(floor_y);
+                let alpha_y = smoothstep(relative_y_d as f32);
+                if last_floor_y != floor_y {
+                    let xy00 = p.permute(x0 + floor_y);
+                    let xy01 = p.permute(x0 + floor_y + 1);
+                    let xy10 = p.permute(x1 + floor_y);
+                    let xy11 = p.permute(x1 + floor_y + 1);
+                    let corners = [
+                        (xy00 + floor_z, relative_x, relative_z),
+                        (xy10 + floor_z, relative_x - 1.0, relative_z),
+                        (xy01 + floor_z, relative_x, relative_z),
+                        (xy11 + floor_z, relative_x - 1.0, relative_z),
+                        (xy00 + floor_z + 1, relative_x, relative_z - 1.0),
+                        (xy10 + floor_z + 1, relative_x - 1.0, relative_z - 1.0),
+                        (xy01 + floor_z + 1, relative_x, relative_z - 1.0),
+                        (xy11 + floor_z + 1, relative_x - 1.0, relative_z - 1.0),
+                    ];
+                    for (i, (hash, cx, cz)) in corners.into_iter().enumerate() {
+                        let grad = p.permute_to_grad(hash);
+                        d[i] = grad.dot_xz(cx, cz);
+                        g[i] = grad.y as f32;
+                    }
+                    last_floor_y = floor_y;
+                }
+
+                let ry = fudged_relative_y(original_y, relative_y_d);
+                let value = lerp3(
+                    alpha_x,
+                    alpha_y,
+                    alpha_z,
+                    d[0] + g[0] * ry,
+                    d[1] + g[1] * ry,
+                    d[2] + g[2] * (ry - 1.0),
+                    d[3] + g[3] * (ry - 1.0),
+                    d[4] + g[4] * ry,
+                    d[5] + g[5] * ry,
+                    d[6] + g[6] * (ry - 1.0),
+                    d[7] + g[7] * (ry - 1.0),
+                );
+                buffer[index] += amplitude * value;
+                index += 1;
+            }
         }
-    }
-
-    #[test]
-    fn zero_axis_helpers_match_full_noise() {
-        let mut random = rng(98_765);
-        let splitter = random.next_positional();
-        let noise = PerlinNoise::create(&splitter, -6, &[1.0, 0.0, 1.0, 1.0, 0.5]);
-
-        for &(a, b) in &[(0.0, 0.0), (1.25, -30.75), (-1000.0, 4096.5)] {
-            assert!((noise.get_value_xz(a, b) - noise.get_value(a, 0.0, b)).abs() < 1e-15);
-            assert!((noise.get_value_xy(a, b) - noise.get_value(a, b, 0.0)).abs() < 1e-15);
-        }
-    }
-
-    #[test]
-    fn spatial_variation() {
-        let mut random = rng(42);
-        let splitter = random.next_positional();
-        let noise = PerlinNoise::create(&splitter, -4, &[1.0, 1.0, 1.0, 1.0]);
-
-        let values: Vec<f64> = (0..10)
-            .map(|i| noise.get_value(f64::from(i) * 50.0, 64.0, f64::from(i) * 50.0))
-            .collect();
-        let min = values.iter().copied().fold(f64::INFINITY, f64::min);
-        let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        assert!(max - min > 0.01);
     }
 }

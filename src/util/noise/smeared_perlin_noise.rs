@@ -1,6 +1,6 @@
+use crate::util::density_volume::DensityVolume;
 use crate::util::interval::Interval;
 use crate::util::rng::RandomSource;
-use crate::world::worldgen::densityfunction::volume::DensityVolume;
 
 use super::gradient_noise::{GradientNoise, floor, wrap};
 use super::perlin_noise::{PerlinNoise, add_to_volume};

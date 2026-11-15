@@ -1,15 +1,15 @@
 use shulkr::util::{Axis, BoundingBox};
 
 use crate::util::interval::{java_max, java_min, java_signum};
+use crate::util::noise::gradient_noise::lerp3;
+use crate::util::noise::{Noise, SimplexNoise};
 use crate::world::worldgen::backend::jit;
-use crate::world::worldgen::synth::gradient_noise::lerp3;
-use crate::world::worldgen::synth::{Noise, SimplexNoise};
 
 use super::context::{SamplerContext, block_pos_as_long};
 use super::function::{DistanceMetric, RoundType, SimpleType, clamp, round_to_integer, squeeze};
 use super::sampler::{GradientTiling, S, Sampler, SamplerNode, SplineNode};
 use super::spline::{find_interval_start, linear_extend};
-use super::volume::DensityVolume;
+use crate::util::density_volume::DensityVolume;
 use crate::world::worldgen::beardifier::Beardifier;
 use std::mem;
 use std::ptr;

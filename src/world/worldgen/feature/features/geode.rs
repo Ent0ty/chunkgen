@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use shulkr::world::block::Block;
 
+use crate::util::noise::normal_noise::NormalNoise;
 use crate::util::rng::RandomSource;
 use crate::util::rng::legacy_random::LegacyRandomSource;
 use crate::util::value_providers::int::IntProvider;
@@ -9,7 +10,6 @@ use crate::world::worldgen::feature::features::DIRECTIONS;
 use crate::world::worldgen::feature::features::blockpos_iter::between_closed;
 use crate::world::worldgen::feature::state_provider::ProviderHolder;
 use crate::world::worldgen::region::WorldGenRegion;
-use crate::world::worldgen::synth::normal_noise::NormalNoise;
 use shulkr::util::BlockPosition;
 use shulkr::world::block::BlockState;
 use shulkr::world::block::Properties;

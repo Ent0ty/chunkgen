@@ -3,13 +3,13 @@ use std::sync::Arc;
 
 use shulkr::util::Axis;
 
+use crate::util::noise::smeared_perlin_noise::SmearedPerlinNoise;
+use crate::util::noise::{Noise, NoiseStack, SimplexNoise};
 use crate::util::rng::RandomFactory;
 use crate::util::rng::RandomSource;
 use crate::util::rng::legacy_random::LegacyRandomSource;
 use crate::util::rng::name_hash::NameHash;
 use crate::util::rng::xoroshiro::XoroshiroRandomSource;
-use crate::world::worldgen::synth::smeared_perlin_noise::SmearedPerlinNoise;
-use crate::world::worldgen::synth::{Noise, NoiseStack, SimplexNoise};
 
 use super::function::{
     ALL_AXES, AXIS_X, AXIS_Y, AXIS_Z, BinaryType, BlendedNoise, DensityFunction, Df, NoiseHolder,

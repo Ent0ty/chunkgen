@@ -10,13 +10,13 @@ use shulkr::world::block::{BlockState, Properties};
 use crate::datapack::{self, collect_json_files, parse_id, path_to_id, read_and_parse_normalized};
 use crate::util::inclusive_range::InclusiveRange;
 use crate::util::math::clamped_lerp;
+use crate::util::noise::Noise;
+use crate::util::noise::normal_noise::{NormalNoise, Parameters};
 use crate::util::rng::RandomSource;
 use crate::util::rng::legacy_random::LegacyRandomSource;
 use crate::util::value_providers::int::IntProvider;
 use crate::world::worldgen::block_predicate::{BlockPredicate, HolderSet};
 use crate::world::worldgen::region::WorldGenRegion;
-use crate::world::worldgen::synth::Noise;
-use crate::world::worldgen::synth::normal_noise::{NormalNoise, Parameters};
 use std::cell;
 use std::cell::RefCell;
 

@@ -6,4 +6,3 @@ pub mod parse;
 pub mod registry;
 pub mod sampler;
 pub mod spline;
-pub mod volume;

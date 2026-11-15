@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::util::density_volume::DensityVolume;
 use crate::world::worldgen::densityfunction::context::SamplerContext;
 use crate::world::worldgen::densityfunction::eval::{sample_value, sample_volume};
 use crate::world::worldgen::densityfunction::sampler::S;
-use crate::world::worldgen::densityfunction::volume::DensityVolume;
 
 use super::TargetPoint;
 

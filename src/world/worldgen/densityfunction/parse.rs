@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 use serde_json::Value;
 use shulkr::util::Axis;
 
-use crate::world::worldgen::synth::normal_noise::NormalNoise;
+use crate::util::noise::normal_noise::NormalNoise;
 
 use super::function::{
     BinaryType, BlendedNoise, DensityFunction, Df, DistanceMetric, Gradient, Holder, NoiseHolder,
